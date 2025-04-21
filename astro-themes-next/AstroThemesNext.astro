@@ -1,0 +1,207 @@
+---
+import type { HTMLAttributes } from "astro/types";
+
+interface ValueObject {
+  [themeName: string]: string
+}
+
+type DataAttribute = `data-${string}`
+
+interface ScriptProps extends HTMLAttributes<'script'> {
+  [dataAttribute: DataAttribute]: any
+}
+
+type Attribute = DataAttribute | 'class'
+
+interface Props {
+  /** List of all available theme names */
+  themes?: string[] | undefined
+  /** Forced theme name for the current page */
+  forcedTheme?: string | undefined
+  /** Whether to switch between dark and light themes based on prefers-color-scheme */
+  enableSystem?: boolean | undefined
+  /** Disable all CSS transitions when switching themes */
+  disableTransitionOnChange?: boolean | undefined
+  /** Whether to indicate to browsers which color scheme is used (dark or light) for built-in UI like inputs and buttons */
+  enableColorScheme?: boolean | undefined
+  /** Key used to store theme setting in localStorage */
+  storageKey?: string | undefined
+  /** Default theme name (for v0.0.12 and lower the default was light). If `enableSystem` is false, the default theme is light */
+  defaultTheme?: string | undefined
+  /** HTML attribute modified based on the active theme. Accepts `class`, `data-*` (meaning any data attribute, `data-mode`, `data-color`, etc.), or an array which could include both */
+  attribute?: Attribute | Attribute[] | undefined
+  /** Mapping of theme name to HTML attribute value. Object where key is the theme name and value is the attribute value */
+  value?: ValueObject | undefined
+  /** Nonce string to pass to the inline script and style elements for CSP headers */
+  nonce?: string
+  /** Props to pass the inline script */
+  scriptProps?: ScriptProps
+}
+
+const defaultThemes = ['light', 'dark']
+
+const {
+  forcedTheme,
+  disableTransitionOnChange = false,
+  enableSystem = true,
+  enableColorScheme = true,
+  storageKey = 'theme',
+  themes = defaultThemes,
+  defaultTheme = enableSystem ? 'system' : 'light',
+  attribute = 'data-theme',
+  value,
+  nonce,
+  scriptProps
+} = Astro.props;
+
+export function getTheme() {
+  document.documentElement.attributes.getNamedItem('data-theme')?.value // 'light' | 'dark'
+}
+---
+
+
+<script type="module" define:vars={{
+  forcedTheme,
+  disableTransitionOnChange,
+  enableSystem,
+  enableColorScheme,
+  storageKey,
+  themes,
+  defaultTheme,
+  attribute,
+  value,
+  nonce
+}} {...scriptProps}>
+
+
+const colorSchemes = ['light', 'dark'];
+const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+
+// Helpers
+const getTheme = (key, fallback) => {
+  let theme
+  try {
+    theme = localStorage.getItem(key) || undefined
+  } catch (e) {
+    // Unsupported
+  }
+  return theme || fallback
+};
+
+const getResolveTheme = () => {
+  const theme = getTheme(storageKey, defaultTheme)
+  return theme === 'system' ? getSystemTheme() : theme
+};
+
+const disableAnimation = (nonce) => {
+  const css = document.createElement('style');
+  if (nonce) css.setAttribute('nonce', nonce);
+  css.appendChild(
+    document.createTextNode(
+      `*,*::before,*::after{-webkit-transition:none!important;-moz-transition:none!important;-o-transition:none!important;-ms-transition:none!important;transition:none!important}`
+    )
+  );
+  document.head.appendChild(css);
+
+  return () => {
+    // Force restyle
+    ; (() => window.getComputedStyle(document.body))()
+
+    // Wait for next tick before removing
+    setTimeout(() => {
+      document.head.removeChild(css)
+    }, 1);
+  };
+};
+
+const getSystemTheme = () => {
+  const isDark = prefersDark.matches;
+  const systemTheme = isDark ? 'dark' : 'light';
+  return systemTheme;
+}
+
+const saveToLS = (storageKey, value) => {
+  try {
+    localStorage.setItem(storageKey, value);
+  } catch (e) {
+    // Unsupported
+  }
+};
+
+const attrs = !value ? themes : Object.keys(value);
+
+const applyTheme = (theme, doc) => {
+  let resolved = theme;
+  if (!resolved) return;
+
+  // If theme is system, resolve it before setting theme
+  if (theme === 'system' && enableSystem) {
+    resolved = getSystemTheme()
+  }
+
+  const name = value ? value[resolved] : resolved
+  const enable = disableTransitionOnChange ? disableAnimation(nonce) : null
+  const d = doc ? doc.documentElement : document.documentElement
+
+  const handleAttribute = (attr) => {
+    if (attr === 'class') {
+      d.classList.remove(...attrs)
+      if (name) d.classList.add(name)
+    } else if (attr.startsWith('data-')) {
+      if (name) {
+        d.setAttribute(attr, name)
+      } else {
+        d.removeAttribute(attr)
+      }
+    }
+  }
+
+  if (Array.isArray(attribute)) attribute.forEach(handleAttribute)
+  else handleAttribute(attribute)
+
+  if (enableColorScheme) {
+    const fallback = colorSchemes.includes(defaultTheme) ? defaultTheme : null
+    const colorScheme = colorSchemes.includes(resolved) ? resolved : fallback
+    // @ts-ignore
+    d.style.colorScheme = colorScheme
+  }
+
+  enable?.()
+}
+
+// localStorage event handling
+const handleStorage = (e) => {
+  if (e.key !== storageKey) {
+    return
+  }
+
+  // If default theme set, use it if localstorage === null (happens on local storage manual deletion)
+  applyTheme(e.newValue || defaultTheme)
+}
+
+const handleSetTheme = (e) => {
+  if (e.detail) {
+    saveToLS(storageKey, e.detail)
+    applyTheme(e.detail)
+  } else {
+    // If no theme is set, use default theme
+    const newTheme = getResolveTheme()
+    saveToLS(storageKey, newTheme)
+    applyTheme(newTheme)
+  }
+}
+
+const refreshTheme = () => {
+  applyTheme(getResolveTheme())
+}
+
+const handleBeforeSwap = (e) => {
+  applyTheme(getResolveTheme(), e.newDocument)
+}
+
+window.addEventListener('storage', handleStorage);
+document.addEventListener('set-theme', handleSetTheme);
+prefersDark.addListener(refreshTheme);
+document.addEventListener('astro:before-swap', handleBeforeSwap);
+refreshTheme();
+</script>

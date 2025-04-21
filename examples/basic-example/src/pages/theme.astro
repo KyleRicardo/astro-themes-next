@@ -1,0 +1,54 @@
+---
+import { getTheme, setTheme } from 'astro-themes-next';
+import Layout from '../layouts/Layout.astro';
+
+---
+
+<Layout>
+  <div>
+    <h1>Astro Themes Example</h1>
+
+    <div>
+      <button
+        id="set-light"
+      >
+        Light
+      </button>
+      <button
+        onclick="document.dispatchEvent(new CustomEvent('set-theme', { detail: 'dark' }))"
+      >
+        Dark
+      </button>
+      <button
+        onclick="document.dispatchEvent(new CustomEvent('set-theme', { detail: 'system' }))"
+      >
+        System
+      </button>
+    </div>
+
+    <a href="/">Back to home</a>
+  </div>
+</Layout>
+
+<style>
+  button {
+    margin: 0.5em;
+    padding: 0.5em 1em;
+    border: 1px solid gray;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    border-radius: 4px;
+    cursor: pointer;
+    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+    transition-duration: 0.5s;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+</style>
+
+<script>
+import { setTheme } from "astro-themes-next";
+
+  document.getElementById('set-light')?.addEventListener('click', () => {
+    setTheme('light');
+  });
+</script>
